@@ -72,7 +72,8 @@ blending_min=500
 stockage_min=100
 Big_M=100000000
 Cout_stockage_building=10
-Big_n=range(1,10)
+Big_n=range(1,3)
+Big_n_1=range(3,7)
 url1="venv/Structure_Modele_Actuelle - small data set.xlsx"
 url2="venv/Structure_Modele_Actuelle - all data set.xlsx"
 url=url2
@@ -138,7 +139,7 @@ OCP=["OCP Jorf","OCP SAFI","OCP Port Casablanca","OCP Port Tanger","OCP Port Nad
 Capacite_Blender=elim_zero(getting(3,df_Blenders))
 Capacite_SBlender=elim_zero(getting(4,df_Blenders))
 Blenderplus=com_possible(Province,Big_n)
-SBlenderplus=com_possible(Province,Big_n)
+SBlenderplus=com_possible(Province,Big_n_1)
 n=len(Blenderplus)
 ToutBlenderplus=Blenderplus+SBlenderplus
 Capacite_Blenderplus=[12000 for i in range(n)]
@@ -280,20 +281,50 @@ contrainte_min(prob,Rplus_2,MP,Stockplus,ToutBlenderplus,W_Rplus_2,Big_M,0,temps
 
 
 for k in range(len(ToutBlender)):
-    prob += pulp.lpSum([X[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in OCP])+pulp.lpSum([R[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stock])+pulp.lpSum([Rplus_1[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stockplus]) <= Capacite_TBlender[k], "capacite blender "+str(k)
+    prob += pulp.lpSum([X[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in OCP])\
+            +pulp.lpSum([R[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stock])\
+            +pulp.lpSum([Rplus_1[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stockplus]) <= Capacite_TBlender[k], "capacite blender "+str(k)
+
+for k in range(len(ToutBlenderplus)):
+    prob += pulp.lpSum([Xplus[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in OCP])\
+            +pulp.lpSum([Rplus_0[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stock])\
+            +pulp.lpSum([Rplus_2[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stockplus]) <= Capacite_TBlenderplus[k]
+
 
 for k in range(len(Stock)):
-    prob += pulp.lpSum([A[i][j][Stock[k]][t] for t in temps for i in MP for j in OCP])+pulp.lpSum([B[i][j][Stock[k]][t] for t in temps for i in Recette for j in ToutBlender])+pulp.lpSum([Bplus_0[i][j][Stock[k]][t] for t in temps for i in Recette for j in ToutBlenderplus]) <= Capacite_Stockage[k]
+    prob += pulp.lpSum([A[i][j][Stock[k]][t] for t in temps for i in MP for j in OCP])
+    +pulp.lpSum([B[i][j][Stock[k]][t] for t in temps for i in Recette for j in ToutBlender])
+    +pulp.lpSum([Bplus_0[i][j][Stock[k]][t] for t in temps for i in Recette for j in ToutBlenderplus])
+    +pulp.lpSum(res_MP[i][Stock[k]][t] for t in temps for i in MP)\
+    +pulp.lpSum(res_PF[i][Stock[k]][t] for t in temps for i in Recette)\
+    <= Capacite_Stockage[k]
+
+
+for k in range(len(Stockplus)):
+    prob += pulp.lpSum([Aplus[i][j][Stockplus[k]][t] for t in temps for i in MP for j in OCP])
+    +pulp.lpSum([Bplus_1[i][j][Stockplus[k]][t] for t in temps for i in Recette for j in ToutBlender])
+    +pulp.lpSum([Bplus_2[i][j][Stockplus[k]][t] for t in temps for i in Recette for j in ToutBlenderplus])
+    +pulp.lpSum([res_MP_plus[i][Stockplus[k]][t] for t in temps for i in MP])\
+    +pulp.lpSum([res_PF_plus[i][Stockplus[k]][t] for t in temps for i in Recette])\
+    <= Capacite_Stockageplus[k]
 
 for k in range(len(ToutBlender)):
-    prob += pulp.lpSum([X[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in OCP])+pulp.lpSum([R[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stock])+pulp.lpSum([Rplus_1[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stockplus]) == pulp.lpSum([Y[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Province])+pulp.lpSum([B[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Stock])+pulp.lpSum([Bplus_1[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Stockplus])
+    prob += pulp.lpSum([X[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in OCP])\
+            +pulp.lpSum([R[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stock])\
+            +pulp.lpSum([Rplus_1[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stockplus]) == \
+            pulp.lpSum([Y[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Province])\
+            +pulp.lpSum([B[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Stock])\
+            +pulp.lpSum([Bplus_1[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Stockplus])
 
 for k in range(len(ToutBlenderplus)):
-    prob += pulp.lpSum([Xplus[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in OCP])+pulp.lpSum([Rplus_0[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stock])+pulp.lpSum([Rplus_2[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stockplus]) == pulp.lpSum([Yplus[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Province])+pulp.lpSum([Bplus_0[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Stock])+pulp.lpSum([Bplus_2[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Stockplus])
+    prob += pulp.lpSum([Xplus[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in OCP])\
+            +pulp.lpSum([Rplus_0[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stock])\
+            +pulp.lpSum([Rplus_2[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stockplus]) == \
+            pulp.lpSum([Yplus[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Province])\
+            +pulp.lpSum([Bplus_0[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Stock])\
+            +pulp.lpSum([Bplus_2[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Stockplus])
 
 
-for k in range(len(ToutBlenderplus)):
-    prob += pulp.lpSum([Xplus[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in OCP])+pulp.lpSum([Rplus_0[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stock])+pulp.lpSum([Rplus_2[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stockplus]) <= Capacite_TBlenderplus[k]
 
 
 #demande satistfaite:
@@ -369,14 +400,18 @@ for i in range(len(MP)):
 
 for i in MP:
     for j in Stock:
-        prob+=res_MP[i][j][2]==0
+        prob+=res_MP[i][j][2]==pulp.lpSum([A[i][k][j][2] for k in OCP])\
+                    -pulp.lpSum([R[i][j][k][2] for k in ToutBlender])\
+                    -pulp.lpSum([Rplus_0[i][j][k][2] for k in ToutBlenderplus])
         for t in range(1,len(temps)):
             prob += res_MP[i][j][temps[t]] == res_MP[i][j][temps[t-1]]\
                     +pulp.lpSum([A[i][k][j][t] for k in OCP])\
                     -pulp.lpSum([R[i][j][k][t] for k in ToutBlender])\
                     -pulp.lpSum([Rplus_0[i][j][k][t] for k in ToutBlenderplus])
     for j in Stockplus:
-        prob += res_MP_plus[i][j][2] == 0
+        prob += res_MP_plus[i][j][2] == pulp.lpSum([Aplus[i][k][j][2] for k in OCP]) \
+                    - pulp.lpSum([Rplus_1[i][j][k][2] for k in ToutBlender]) \
+                    - pulp.lpSum([Rplus_2[i][j][k][2] for k in ToutBlenderplus])
         for t in range(1, len(temps)):
             prob += res_MP_plus[i][j][temps[t]] == res_MP_plus[i][j][temps[t - 1]] \
                     + pulp.lpSum([Aplus[i][k][j][t] for k in OCP]) \
@@ -385,14 +420,18 @@ for i in MP:
 
 for i in Recette:
     for j in Stock:
-        prob+=res_PF[i][j][2]==0
+        prob+=res_PF[i][j][2]==+pulp.lpSum([B[i][k][j][2] for k in ToutBlender])\
+                    +pulp.lpSum([Bplus_0[i][k][j][2] for k in ToutBlenderplus])\
+                    -pulp.lpSum([P[i][j][k][2] for k in Province])
         for t in range(1,len(temps)):
             prob += res_PF[i][j][temps[t]] == res_PF[i][j][temps[t-1]]\
                     +pulp.lpSum([B[i][k][j][t] for k in ToutBlender])\
                     +pulp.lpSum([Bplus_0[i][k][j][t] for k in ToutBlenderplus])\
                     -pulp.lpSum([P[i][j][k][t] for k in Province])
     for j in Stockplus:
-        prob += res_PF_plus[i][j][2] == 0
+        prob += res_PF_plus[i][j][2] ==pulp.lpSum([Bplus_1[i][k][j][2] for k in ToutBlender]) \
+                    + pulp.lpSum([Bplus_2[i][k][j][2] for k in ToutBlenderplus]) \
+                    - pulp.lpSum([Pplus[i][j][k][2] for k in Province])
         for t in range(1, len(temps)):
             prob += res_PF_plus[i][j][temps[t]] == res_PF_plus[i][j][temps[t - 1]] \
                     + pulp.lpSum([Bplus_1[i][k][j][t] for k in ToutBlender]) \
