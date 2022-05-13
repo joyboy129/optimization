@@ -1,19 +1,13 @@
-# This is a sample Python script.
-
-# Press Maj+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-# This is a sample Python script.
-
-
-# Press Maj+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 import pulp
 from pulp import *
 import pandas as pd
 import numpy as np
 import openpyxl
-
+import gurobipy
+from gurobipy import *
+import xlsxwriter
+from openpyxl.workbook import Workbook
+from openpyxl.writer.excel import ExcelWriter
 #Input
 
 
@@ -72,11 +66,11 @@ blending_min=500
 stockage_min=100
 Big_M=100000000
 Cout_stockage_building=10
-Big_n=range(1,3)
-Big_n_1=range(3,7)
+Big_n=range(1,2)
+Big_n_1=range(2,3)
 url1="venv/Structure_Modele_Actuelle - small data set.xlsx"
 url2="venv/Structure_Modele_Actuelle - all data set.xlsx"
-url=url2
+url=url1
 OCP=["OCP Jorf","OCP SAFI","OCP Port Casablanca","OCP Port Tanger","OCP Port Nador"]
 df_Options = pd.read_excel (url, sheet_name='Options')
 df_Options=df_Options.to_numpy()
@@ -120,7 +114,8 @@ for i in range(len(df_Blenders)):
 
 
 #Initiation du probleme
-prob = LpProblem("The OCP Problem", LpMinimize)
+prob = Model("OCP problem")
+
 
 
 #Process de calcul des constantes
@@ -131,6 +126,7 @@ Filieres=getting(1,df_Recette)
 
 #Constantes
 MP=getting(0,df_MP)
+prix_MP=getting(1,df_MP)
 Prix_MP=getting(1,df_MP)
 Province=getting(0,df_Stockage)
 Stock=getting(0,df_Stockage)
@@ -155,7 +151,6 @@ ToutBlender=Blenders+SBlenders
 zone=getting(0,df_transportAmont)
 Stockplus=com_possible(Province,Big_n)
 Capacite_Stockageplus=[3500 for i in range(len(Stockplus))]
-AllBlender=ToutBlender+ToutBlenderplus
 coa={}
 
 for i in range(len(zone)):
@@ -175,8 +170,8 @@ def contrainte_min(prob,X,MP,OCP,ToutBlender,W_X,Big_M,blending_min,temps):
         for j in OCP:
             for k in ToutBlender:
                 for t in temps:
-                    prob += X[i][j][k][t] <= W_X[i][j][k][t] * Big_M
-                    prob += X[i][j][k][t] >= W_X[i][j][k][t] * blending_min
+                    prob.addConstr(X[i,j,k,t] <= W_X[i,j,k,t] * Big_M)
+                    prob.addConstr(X[i,j,k,t] >= W_X[i,j,k,t] * blending_min)
 
 
 
@@ -187,65 +182,69 @@ def cont_activation(prob,Cplus,W_Xplus,MP,OCP,ToutBlenderplus,temps):
         for j in OCP:
             for k in ToutBlenderplus:
                 for t in temps:
-                    prob += Cplus[k][t] >= W_Xplus[i][j][k][t]
+                    prob.addConstr(Cplus[k,t] >= W_Xplus[i,j,k,t])
 
 def cont_activation1(prob,Splus,W_Rplus_2,Recette,Stockplus,ToutBlenderplus):
     for i in Recette:
         for j in Stockplus:
             for k in ToutBlenderplus:
-                prob += Splus[j] >= W_Rplus_2[i][j][k]
+                prob.addConstr(Splus[j] >= W_Rplus_2[i,j,k])
 #A revoir
 #Déclaration des variables
 
 
-X=pulp.LpVariable.dicts("X",(MP,OCP,ToutBlender,temps),lowBound=0,cat="Continuous")
-Xplus=pulp.LpVariable.dicts("Xplus",(MP,OCP,ToutBlenderplus,temps),lowBound=0,cat="Continuous")
-R=pulp.LpVariable.dicts("R",(MP,Stock,ToutBlender,temps),lowBound=0,cat="Continuous")
-Rplus_0=pulp.LpVariable.dicts("Rplus_0",(MP,Stock,ToutBlenderplus,temps),lowBound=0,cat="Continuous")
-Rplus_1=pulp.LpVariable.dicts("Rplus_1",(MP,Stockplus,ToutBlender,temps),lowBound=0,cat="Continuous")
-Rplus_2=pulp.LpVariable.dicts("Rplus_2",(MP,Stockplus,ToutBlenderplus,temps),lowBound=0,cat="Continuous")
-Y=pulp.LpVariable.dicts("Y",(Recette,ToutBlender,Province,temps),lowBound=0,cat="Continuous")
-Yplus=pulp.LpVariable.dicts("Yplus",(Recette,ToutBlenderplus,Province,temps),lowBound=0,cat="Continuous")
-A=pulp.LpVariable.dicts("A",(MP,OCP,Stock,temps),lowBound=0,cat="Continuous")
-Aplus=pulp.LpVariable.dicts("Aplus",(MP,OCP,Stockplus,temps),lowBound=0,cat="Continuous")
-B=pulp.LpVariable.dicts("B",(Recette,ToutBlender,Stock,temps),lowBound=0,cat="Continuous")
-Bplus_0=pulp.LpVariable.dicts("Bplus_0",(Recette,ToutBlenderplus,Stock,temps),lowBound=0,cat="Continuous")
-Bplus_1=pulp.LpVariable.dicts("Bplus_1",(Recette,ToutBlender,Stockplus,temps),lowBound=0,cat="Continuous")
-Bplus_2=pulp.LpVariable.dicts("Bplus_2",(Recette,ToutBlenderplus,Stockplus,temps),lowBound=0,cat="Continuous")
-P=pulp.LpVariable.dicts("P",(Recette,Stock,Province,temps),lowBound=0,cat="Continuous")
-Pplus=pulp.LpVariable.dicts("Pplus",(Recette,Stockplus,Province,temps),lowBound=0,cat="Continuous")
-W_X= LpVariable.dicts("W_X", (MP,OCP,ToutBlender,temps), lowBound=0, upBound=1, cat='Binary')
-W_A= LpVariable.dicts("W_A", (MP,OCP,Stock,temps), lowBound=0, upBound=1, cat='Binary')
-W_B= LpVariable.dicts("W_B", (Recette,ToutBlender,Stock,temps), lowBound=0, upBound=1, cat='Binary')
-W_Xplus= LpVariable.dicts("W_X", (MP,OCP,ToutBlenderplus,temps), lowBound=0, upBound=1, cat='Binary')
-W_Aplus= LpVariable.dicts("W_A", (MP,OCP,Stockplus,temps), lowBound=0, upBound=1, cat='Binary')
-W_Rplus_0=pulp.LpVariable.dicts("W_Rplus_0",(MP,Stock,ToutBlenderplus,temps),lowBound=0, upBound=1, cat='Binary')
-W_Rplus_1=pulp.LpVariable.dicts("W_Rplus_1",(MP,Stockplus,ToutBlender,temps),lowBound=0, upBound=1, cat='Binary')
-W_Rplus_2=pulp.LpVariable.dicts("W_Rplus_2",(MP,Stockplus,ToutBlenderplus,temps),lowBound=0, upBound=1, cat='Binary')
-W_Yplus=pulp.LpVariable.dicts("W_Yplus",(Recette,ToutBlenderplus,Province,temps),lowBound=0, upBound=1, cat='Binary')
-W_Bplus_0=pulp.LpVariable.dicts("W_Bplus_0",(Recette,ToutBlenderplus,Stock,temps),lowBound=0, upBound=1, cat='Binary')
-W_Bplus_1=pulp.LpVariable.dicts("W_Bplus_1",(Recette,ToutBlender,Stockplus,temps),lowBound=0, upBound=1, cat='Binary')
-W_Bplus_2=pulp.LpVariable.dicts("W_Bplus_2",(Recette,ToutBlenderplus,Stockplus,temps),lowBound=0, upBound=1, cat='Binary')
-W_R= LpVariable.dicts("W_R", (MP,Stock,ToutBlender,temps), lowBound=0, upBound=1, cat='Binary')
-Cplus=pulp.LpVariable.dicts("Cplus",(ToutBlenderplus,temps),lowBound=0, upBound=1, cat='Binary')
-Splus=pulp.LpVariable.dicts("Splus",(Stockplus,temps),lowBound=0, upBound=1, cat='Binary')
-res_MP=pulp.LpVariable.dicts("res_MP",(MP,Stock,temps),lowBound=0,cat="Continuous")
-res_PF=pulp.LpVariable.dicts("res_PF",(Recette,Stock,temps),lowBound=0,cat="Continuous")
-res_MP_plus=pulp.LpVariable.dicts("res_MP_plus",(MP,Stockplus,temps),lowBound=0,cat="Continuous")
-res_PF_plus=pulp.LpVariable.dicts("res_PF_plus",(Recette,Stockplus,temps),lowBound=0,cat="Continuous")
-CplusF=pulp.LpVariable.dicts("Cplus",(ToutBlenderplus),lowBound=0, upBound=1, cat='Binary')
-SplusF=pulp.LpVariable.dicts("Splus",(Stockplus),lowBound=0, upBound=1, cat='Binary')
+X=prob.addVars(MP,OCP,ToutBlender,temps,vtype=GRB.CONTINUOUS,lb=0,name="X")
+Xplus=prob.addVars(MP,OCP,ToutBlenderplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="Xplus")
+R=prob.addVars(MP,Stock,ToutBlender,temps,vtype=GRB.CONTINUOUS,lb=0,name="R")
+Rplus_0=prob.addVars(MP,Stock,ToutBlenderplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="Rplus_0")
+Rplus_1=prob.addVars(MP,Stockplus,ToutBlender,temps,vtype=GRB.CONTINUOUS,lb=0,name="Rplus_1")
+Rplus_2=prob.addVars(MP,Stockplus,ToutBlenderplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="Rplus_2")
+Y=prob.addVars(Recette,ToutBlender,Province,temps,vtype=GRB.CONTINUOUS,lb=0,name="Y")
+Yplus=prob.addVars(Recette,ToutBlenderplus,Province,temps,vtype=GRB.CONTINUOUS,lb=0,name="Yplus")
+A=prob.addVars(MP,OCP,Stock,temps,vtype=GRB.CONTINUOUS,lb=0,name="A")
+Aplus=prob.addVars(MP,OCP,Stockplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="Aplus")
+B=prob.addVars(Recette,ToutBlender,Stock,temps,vtype=GRB.CONTINUOUS,lb=0,name="B")
+Bplus_0=prob.addVars(Recette,ToutBlenderplus,Stock,temps,vtype=GRB.CONTINUOUS,lb=0,name="Bplus_0")
+Bplus_1=prob.addVars(Recette,ToutBlender,Stockplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="Bplus_1")
+Bplus_2=prob.addVars(Recette,ToutBlenderplus,Stockplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="Bplus_2")
+P=prob.addVars(Recette,Stock,Province,temps,vtype=GRB.CONTINUOUS,lb=0,name="P")
+Pplus=prob.addVars(Recette,Stockplus,Province,temps,vtype=GRB.CONTINUOUS,lb=0,name="Pplus")
+
+
+W_X= prob.addVars(MP,OCP,ToutBlender,temps,vtype=GRB.BINARY,lb=0,name="W_X")
+W_A= prob.addVars(MP,OCP,Stock,temps,vtype=GRB.BINARY,lb=0,name="W_A")
+W_B= prob.addVars(Recette,ToutBlender,Stock,temps,vtype=GRB.BINARY,lb=0,name="W_B")
+W_Xplus= prob.addVars(MP,OCP,ToutBlenderplus,temps,vtype=GRB.BINARY,lb=0,name="W_Xplus")
+W_Aplus= prob.addVars(MP,OCP,Stockplus,temps,vtype=GRB.BINARY,lb=0,name="W_Aplus")
+W_Rplus_0=prob.addVars(MP,Stock,ToutBlenderplus,temps,vtype=GRB.BINARY,lb=0,name="W_Rplus_0")
+W_Rplus_1=prob.addVars(MP,Stockplus,ToutBlender,temps,vtype=GRB.BINARY,lb=0,name="W_Rplus_1")
+W_Rplus_2=prob.addVars(MP,Stockplus,ToutBlenderplus,temps,vtype=GRB.BINARY,lb=0,name="W_Rplus_2")
+W_Yplus=prob.addVars(Recette,ToutBlenderplus,Province,temps,vtype=GRB.BINARY,lb=0,name="W_Yplus")
+W_Bplus_0=prob.addVars(Recette,ToutBlenderplus,Stock,temps,vtype=GRB.BINARY,lb=0,name="W_Bplus_0")
+W_Bplus_1=prob.addVars(Recette,ToutBlender,Stockplus,temps,vtype=GRB.BINARY,lb=0,name="W_Bplus_1")
+W_Bplus_2=prob.addVars(Recette,ToutBlenderplus,Stockplus,temps,vtype=GRB.BINARY,lb=0,name="W_Bplus_2")
+W_R=prob.addVars(MP,Stock,ToutBlender,temps,vtype=GRB.BINARY,lb=0,name="W_R")
+Cplus=prob.addVars(ToutBlenderplus,temps,vtype=GRB.BINARY,lb=0,name="Cplus")
+Splus=prob.addVars(Stockplus,temps,vtype=GRB.BINARY,lb=0,name="Splus")
+res_MP=prob.addVars(MP,Stock,temps,vtype=GRB.CONTINUOUS,lb=0,name="res_MP")
+res_PF=prob.addVars(Recette,Stock,temps,vtype=GRB.CONTINUOUS,lb=0,name="res_PF")
+res_MP_plus=prob.addVars(MP,Stockplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="res_MP_plus")
+res_PF_plus=prob.addVars(Recette,Stockplus,temps,vtype=GRB.CONTINUOUS,lb=0,name="res_PF_plus")
+CplusF=prob.addVars(ToutBlenderplus,vtype=GRB.BINARY,lb=0,name="CplusF")
+SplusF=prob.addVars(Stockplus,vtype=GRB.BINARY,lb=0,name="SplusF")
+
+
 
 
 #Contraintes
 
 for i in ToutBlenderplus:
     for t in temps:
-        prob+=CplusF[i]>=Cplus[i][t]
+        prob.addConstr(CplusF[i]>=Cplus[i,t])
 
 for i in Stockplus:
     for t in temps:
-        prob+=SplusF[i]>=Splus[i][t]
+        prob.addConstr(SplusF[i]>=Splus[i,t])
 
 
 
@@ -278,51 +277,60 @@ contrainte_min(prob,Rplus_2,MP,Stockplus,ToutBlenderplus,W_Rplus_2,Big_M,0,temps
 
 
 
-
-
 for k in range(len(ToutBlender)):
-    prob += pulp.lpSum([X[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in OCP])\
-            +pulp.lpSum([R[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stock])\
-            +pulp.lpSum([Rplus_1[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stockplus]) <= Capacite_TBlender[k], "capacite blender "+str(k)
+    prob.addConstr(quicksum(X[i,j,ToutBlender[k],t] for t in temps for i in MP for j in OCP)
+                   +quicksum(R[i,j,ToutBlender[k],t] for t in temps for i in MP for j in Stock)
+                   +quicksum(Rplus_1[i,j,ToutBlender[k],t] for t in temps for i in MP for j in Stockplus)<= Capacite_TBlender[k])
+
+
+
 
 for k in range(len(ToutBlenderplus)):
-    prob += pulp.lpSum([Xplus[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in OCP])\
-            +pulp.lpSum([Rplus_0[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stock])\
-            +pulp.lpSum([Rplus_2[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stockplus]) <= Capacite_TBlenderplus[k]
 
+    prob.addConstr(quicksum(Xplus[i,j,ToutBlenderplus[k],t] for t in temps for i in MP for j in OCP)
+                   + quicksum(Rplus_0[i,j,ToutBlenderplus[k],t] for t in temps for i in MP for j in Stock)
+                   + quicksum(Rplus_2[i,j,ToutBlenderplus[k],t] for t in temps for i in MP for j in Stockplus) <=
+                   Capacite_TBlenderplus[k])
 
 for k in range(len(Stock)):
-    prob += pulp.lpSum([A[i][j][Stock[k]][t] for t in temps for i in MP for j in OCP])
-    +pulp.lpSum([B[i][j][Stock[k]][t] for t in temps for i in Recette for j in ToutBlender])
-    +pulp.lpSum([Bplus_0[i][j][Stock[k]][t] for t in temps for i in Recette for j in ToutBlenderplus])
-    +pulp.lpSum(res_MP[i][Stock[k]][t] for t in temps for i in MP)\
-    +pulp.lpSum(res_PF[i][Stock[k]][t] for t in temps for i in Recette)\
-    <= Capacite_Stockage[k]
+
+    prob.addConstr(quicksum(A[i,j,Stock[k],t] for t in temps for i in MP for j in OCP)
+                   +quicksum(B[i,j,Stock[k],t] for t in temps for i in Recette for j in ToutBlender)
+                   +quicksum(Bplus_0[i,j,Stock[k],t] for t in temps for i in Recette for j in ToutBlenderplus)
+                   +quicksum(res_MP[i,Stock[k],t] for t in temps for i in MP)
+                   +quicksum(res_PF[i,Stock[k],t] for t in temps for i in Recette)<= Capacite_Stockage[k]
+                   )
 
 
 for k in range(len(Stockplus)):
-    prob += pulp.lpSum([Aplus[i][j][Stockplus[k]][t] for t in temps for i in MP for j in OCP])
-    +pulp.lpSum([Bplus_1[i][j][Stockplus[k]][t] for t in temps for i in Recette for j in ToutBlender])
-    +pulp.lpSum([Bplus_2[i][j][Stockplus[k]][t] for t in temps for i in Recette for j in ToutBlenderplus])
-    +pulp.lpSum([res_MP_plus[i][Stockplus[k]][t] for t in temps for i in MP])\
-    +pulp.lpSum([res_PF_plus[i][Stockplus[k]][t] for t in temps for i in Recette])\
-    <= Capacite_Stockageplus[k]
+
+
+    prob.addConstr(quicksum(Aplus[i,j,Stockplus[k],t] for t in temps for i in MP for j in OCP)
+                   + quicksum(Bplus_1[i,j,Stockplus[k],t] for t in temps for i in Recette for j in ToutBlender)
+                   + quicksum(Bplus_2[i,j,Stockplus[k],t] for t in temps for i in Recette for j in ToutBlenderplus)
+                   + quicksum(res_MP_plus[i,Stockplus[k],t] for t in temps for i in MP)
+                   + quicksum(res_PF_plus[i,Stockplus[k],t] for t in temps for i in Recette) <= Capacite_Stockageplus[k]
+                   )
 
 for k in range(len(ToutBlender)):
-    prob += pulp.lpSum([X[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in OCP])\
-            +pulp.lpSum([R[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stock])\
-            +pulp.lpSum([Rplus_1[i][j][ToutBlender[k]][t] for t in temps for i in MP for j in Stockplus]) == \
-            pulp.lpSum([Y[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Province])\
-            +pulp.lpSum([B[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Stock])\
-            +pulp.lpSum([Bplus_1[i][ToutBlender[k]][j][t] for t in temps for i in Recette for j in Stockplus])
+    prob.addConstr(quicksum(X[i,j,ToutBlender[k],t] for t in temps for i in MP for j in OCP)
+                   +quicksum(R[i,j,ToutBlender[k],t] for t in temps for i in MP for j in Stock)
+                   +quicksum(Rplus_1[i,j,ToutBlender[k],t] for t in temps for i in MP for j in Stockplus)
+                   ==quicksum(Y[i,ToutBlender[k],j,t] for t in temps for i in Recette for j in Province)
+                   +quicksum(B[i,ToutBlender[k],j,t] for t in temps for i in Recette for j in Stock)
+                   +quicksum(Bplus_1[i,ToutBlender[k],j,t] for t in temps for i in Recette for j in Stockplus)
+                   )
 
 for k in range(len(ToutBlenderplus)):
-    prob += pulp.lpSum([Xplus[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in OCP])\
-            +pulp.lpSum([Rplus_0[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stock])\
-            +pulp.lpSum([Rplus_2[i][j][ToutBlenderplus[k]][t] for t in temps for i in MP for j in Stockplus]) == \
-            pulp.lpSum([Yplus[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Province])\
-            +pulp.lpSum([Bplus_0[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Stock])\
-            +pulp.lpSum([Bplus_2[i][ToutBlenderplus[k]][j][t] for t in temps for i in Recette for j in Stockplus])
+
+    prob.addConstr(quicksum(Xplus[i,j,ToutBlenderplus[k],t] for t in temps for i in MP for j in OCP)
+                   + quicksum(Rplus_0[i,j,ToutBlenderplus[k],t] for t in temps for i in MP for j in Stock)
+                   + quicksum(Rplus_2[i,j,ToutBlenderplus[k],t] for t in temps for i in MP for j in Stockplus)
+                   == quicksum(Yplus[i,ToutBlenderplus[k],j,t] for t in temps for i in Recette for j in Province)
+                   + quicksum(Bplus_0[i,ToutBlenderplus[k],j,t] for t in temps for i in Recette for j in Stock)
+                   + quicksum(Bplus_2[i,ToutBlenderplus[k],j,t] for t in temps for i in Recette for j in Stockplus)
+                   )
+
 
 
 
@@ -332,148 +340,234 @@ for i in Recette:
     for k in Province:
         for t in temps:
             if i.split("_")[0] == k:
-                prob += pulp.lpSum([Y[i][j][k][t] for j in ToutBlender]) + pulp.lpSum(
-                    [Yplus[i][j][k][t] for j in ToutBlenderplus]) + pulp.lpSum([P[i][j][k][t] for j in Stock]) + pulp.lpSum(
-                    [Pplus[i][j][k][t] for j in Stockplus]) == demande[t][i]
+                prob.addConstr(quicksum(Y[i,j,k,t] for j in ToutBlender)+quicksum(Yplus[i,j,k,t] for j in ToutBlenderplus)
+                               +quicksum(P[i,j,k,t] for j in Stock)+quicksum(Pplus[i,j,k,t] for j in Stockplus)== demande[t][i])
+
 
 #Les blenders doivent recevoir de quoi faire les recettes
 for i in MP:
     for k in ToutBlender:
         for t in temps:
-            prob += pulp.lpSum([X[i][j][k][t] for j in OCP]) + pulp.lpSum([R[i][j][k][t] for j in Stock]) + pulp.lpSum(
-                [Rplus_1[i][j][k][t] for j in Stockplus]) == pulp.lpSum(
-                [Recette_avec_ing[a][i] * Y[a][k][j][t] for j in Province for a in Recette]) + pulp.lpSum(
-                [Recette_avec_ing[a][i] * B[a][k][j][t] for j in Stock for a in Recette]) + pulp.lpSum(
-                [Recette_avec_ing[a][i] * Bplus_1[a][k][j][t] for j in Stockplus for a in Recette])
+            prob.addConstr(quicksum(X[i,j,k,t] for j in OCP)
+                           +quicksum(R[i,j,k,t] for j in Stock)
+                           +quicksum(Rplus_1[i,j,k,t] for j in Stockplus)
+                           ==quicksum(Recette_avec_ing[a][i] * Y[a,k,j,t] for j in Province for a in Recette)
+                           +quicksum(Recette_avec_ing[a][i] * B[a,k,j,t] for j in Stock for a in Recette)
+                           +quicksum(Recette_avec_ing[a][i] * Bplus_1[a,k,j,t] for j in Stockplus for a in Recette))
 
 for i in MP:
     for k in ToutBlenderplus:
         for t in temps:
-            prob += pulp.lpSum([Xplus[i][j][k][t] for j in OCP]) + pulp.lpSum(
-                [Rplus_0[i][j][k][t] for j in Stock]) == pulp.lpSum(
-                [Recette_avec_ing[a][i] * Yplus[a][k][j][t] for j in Province for a in Recette]) + pulp.lpSum(
-                [Recette_avec_ing[a][i] * Bplus_0[a][k][j][t] for j in Stock for a in Recette]) + pulp.lpSum(
-                [Recette_avec_ing[a][i] * Bplus_2[a][k][j][t] for j in Stockplus for a in Recette])
-
-
+            prob.addConstr(quicksum(Xplus[i, j, k, t] for j in OCP)
+                           + quicksum(Rplus_0[i, j, k, t] for j in Stock)
+                           + quicksum(Rplus_2[i,j,k,t] for j in Stockplus)
+                           == quicksum(Recette_avec_ing[a][i] * Yplus[a, k, j, t] for j in Province for a in Recette)
+                           + quicksum(Recette_avec_ing[a][i] * Bplus_0[a, k, j, t] for j in Stock for a in Recette)
+                           + quicksum(Recette_avec_ing[a][i] * Bplus_2[a, k, j, t] for j in Stockplus for a in Recette))
 
 #Les stocks ne creent rien
 for i in MP:
     for j in Stock:
-        for t in temps:
-            prob += pulp.lpSum([R[i][j][k][t] for k in ToutBlender]) + pulp.lpSum(
-                [Rplus_0[i][j][k][t] for k in ToutBlenderplus]) == pulp.lpSum([A[i][k][j][t] for k in OCP]) + \
-                    res_MP[i][j][t]
+        for t in range(1,len(temps)):
+            prob.addConstr(quicksum(R[i,j,k,temps[t]] for k in ToutBlender)
+                           +quicksum(Rplus_0[i,j,k,temps[t]] for k in ToutBlenderplus)
+                           <=quicksum(A[i,k,j,temps[t]] for k in OCP)+res_MP[i,j,temps[t-1]])
+        prob.addConstr(quicksum(R[i, j, k, 2] for k in ToutBlender)
+                       + quicksum(Rplus_0[i, j, k, 2] for k in ToutBlenderplus)
+                       <= quicksum(A[i, k, j, 2] for k in OCP) )
 
 for i in MP:
     for j in Stockplus:
-        for t in temps:
-            prob += pulp.lpSum([Rplus_1[i][j][k][t] for k in ToutBlender]) + pulp.lpSum(
-                [Rplus_2[i][j][k][t] for k in ToutBlenderplus]) == pulp.lpSum([Aplus[i][k][j][t] for k in OCP])\
-                    +res_MP_plus[i][j][t]
-
+        for t in range(1,len(temps)):
+            prob.addConstr(quicksum(Rplus_1[i,j,k,temps[t]] for k in ToutBlender)
+                           + quicksum(Rplus_2[i,j,k,temps[t]] for k in ToutBlenderplus)
+                           <= quicksum(Aplus[i,k,j,temps[t]] for k in OCP) + res_MP_plus[i,j,temps[t-1]])
+        prob.addConstr(quicksum(Rplus_1[i, j, k, 2] for k in ToutBlender)
+                       + quicksum(Rplus_2[i, j, k, 2] for k in ToutBlenderplus)
+                       <= quicksum(Aplus[i, k, j, 2] for k in OCP) )
 
 for i in Recette:
     for j in Stock:
-        for t in temps:
-            prob += pulp.lpSum([P[i][j][k][t] for k in Province]) == pulp.lpSum(
-                [B[i][k][j][t] for k in ToutBlender]) + pulp.lpSum([Bplus_0[i][k][j][t] for k in ToutBlenderplus])+res_PF[i][j][t]
+        for t in range(1,len(temps)):
+            prob.addConstr(quicksum(P[i,j,k,temps[t]] for k in Province)<=
+                           quicksum(B[i,k,j,temps[t]] for k in ToutBlender)
+                           +quicksum(Bplus_0[i,k,j,temps[t]] for k in ToutBlenderplus)
+                           +res_PF[i,j,temps[t-1]])
+        prob.addConstr(quicksum(P[i, j, k, 2] for k in Province) <=
+                       quicksum(B[i, k, j, 2] for k in ToutBlender)
+                       + quicksum(Bplus_0[i, k, j, 2] for k in ToutBlenderplus)
+                       )
 
 for i in Recette:
     for j in Stockplus:
-        for t in temps:
-            prob += pulp.lpSum([Pplus[i][j][k][t] for k in Province]) == pulp.lpSum(
-                [Bplus_2[i][k][j][t] for k in ToutBlenderplus]) + pulp.lpSum([Bplus_1[i][k][j][t] for k in ToutBlender])\
-                    +res_PF_plus[i][j][t]
+        for t in range(1,len(temps)):
+            prob.addConstr(quicksum(Pplus[i,j,k,temps[t]] for k in Province) <=
+                           quicksum(Bplus_1[i,k,j,temps[t]] for k in ToutBlender)
+                           + quicksum(Bplus_2[i,k,j,temps[t]] for k in ToutBlenderplus)
+                           + res_PF_plus[i,j,temps[t-1]])
+        prob.addConstr(quicksum(Pplus[i, j, k, 2] for k in Province) <=
+                       quicksum(Bplus_1[i, k, j, 2] for k in ToutBlender)
+                       + quicksum(Bplus_2[i, k, j, 2] for k in ToutBlenderplus)
+                       )
+
 
 #Contrainte de supply:
 for i in range(len(MP)):
     for j in range(len(OCP)):
         for t in temps:
-            prob += pulp.lpSum([X[MP[i]][OCP[j]][k][t] for k in ToutBlender]) + pulp.lpSum(
-                [Xplus[MP[i]][OCP[j]][k][t] for k in ToutBlenderplus]) + pulp.lpSum(
-                [A[MP[i]][OCP[j]][k][t] for k in Stock]) \
-                    + pulp.lpSum([Aplus[MP[i]][OCP[j]][k][t] for k in Stockplus]) <= \
-                    df_Capacite_source[i][j + 1]
+            prob.addConstr(quicksum(X[MP[i],OCP[j],k,t] for k in ToutBlender)
+                           +quicksum(Xplus[MP[i],OCP[j],k,t] for k in ToutBlenderplus)
+                           +quicksum(A[MP[i],OCP[j],k,t] for k in Stock)
+                           +quicksum(Aplus[MP[i],OCP[j],k,t] for k in Stockplus)
+                           <=df_Capacite_source[i][j + 1]
+                           )
 
 #Step 3 residus:
 
 for i in MP:
     for j in Stock:
-        prob+=res_MP[i][j][2]==pulp.lpSum([A[i][k][j][2] for k in OCP])\
-                    -pulp.lpSum([R[i][j][k][2] for k in ToutBlender])\
-                    -pulp.lpSum([Rplus_0[i][j][k][2] for k in ToutBlenderplus])
+        prob.addConstr(res_MP[i,j,2]==quicksum(A[i,k,j,2] for k in OCP)
+                       -quicksum(R[i,j,k,2] for k in ToutBlender)
+                       -quicksum(Rplus_0[i,j,k,2] for k in ToutBlenderplus))
         for t in range(1,len(temps)):
-            prob += res_MP[i][j][temps[t]] == res_MP[i][j][temps[t-1]]\
-                    +pulp.lpSum([A[i][k][j][t] for k in OCP])\
-                    -pulp.lpSum([R[i][j][k][t] for k in ToutBlender])\
-                    -pulp.lpSum([Rplus_0[i][j][k][t] for k in ToutBlenderplus])
+            prob.addConstr(res_MP[i,j,temps[t]] == res_MP[i,j,temps[t-1]]
+                           +quicksum(A[i,k,j,temps[t]] for k in OCP)
+                           -quicksum(R[i,j,k,temps[t]] for k in ToutBlender)
+                           -quicksum(Rplus_0[i,j,k,temps[t]] for k in ToutBlenderplus))
     for j in Stockplus:
-        prob += res_MP_plus[i][j][2] == pulp.lpSum([Aplus[i][k][j][2] for k in OCP]) \
-                    - pulp.lpSum([Rplus_1[i][j][k][2] for k in ToutBlender]) \
-                    - pulp.lpSum([Rplus_2[i][j][k][2] for k in ToutBlenderplus])
+
+        prob.addConstr(res_MP_plus[i,j,2] == quicksum(Aplus[i,k,j,2] for k in OCP)
+                       - quicksum(Rplus_1[i,j,k,2] for k in ToutBlender)
+                       - quicksum(Rplus_2[i,j,k,2] for k in ToutBlenderplus))
         for t in range(1, len(temps)):
-            prob += res_MP_plus[i][j][temps[t]] == res_MP_plus[i][j][temps[t - 1]] \
-                    + pulp.lpSum([Aplus[i][k][j][t] for k in OCP]) \
-                    - pulp.lpSum([Rplus_1[i][j][k][t] for k in ToutBlender]) \
-                    - pulp.lpSum([Rplus_2[i][j][k][t] for k in ToutBlenderplus])
+            prob.addConstr(res_MP_plus[i,j,temps[t]] == res_MP_plus[i,j,temps[t - 1]]
+                           + quicksum(Aplus[i,k,j,temps[t]] for k in OCP)
+                           - quicksum(Rplus_1[i,j,k,temps[t]] for k in ToutBlender)
+                           - quicksum(Rplus_2[i,j,k,temps[t]] for k in ToutBlenderplus))
 
 for i in Recette:
     for j in Stock:
-        prob+=res_PF[i][j][2]==+pulp.lpSum([B[i][k][j][2] for k in ToutBlender])\
-                    +pulp.lpSum([Bplus_0[i][k][j][2] for k in ToutBlenderplus])\
-                    -pulp.lpSum([P[i][j][k][2] for k in Province])
+        prob.addConstr(res_PF[i,j,2] == quicksum(B[i,k,j,2] for k in ToutBlender)
+                       +quicksum(Bplus_0[i,k,j,2] for k in ToutBlenderplus)
+                       - quicksum(P[i,j,k,2] for k in Province)
+                       )
         for t in range(1,len(temps)):
-            prob += res_PF[i][j][temps[t]] == res_PF[i][j][temps[t-1]]\
-                    +pulp.lpSum([B[i][k][j][t] for k in ToutBlender])\
-                    +pulp.lpSum([Bplus_0[i][k][j][t] for k in ToutBlenderplus])\
-                    -pulp.lpSum([P[i][j][k][t] for k in Province])
+            prob.addConstr(res_PF[i,j,temps[t]] == res_PF[i,j,temps[t-1]]
+                           +quicksum(B[i,k,j,temps[t]] for k in ToutBlender)
+                           +quicksum(Bplus_0[i,k,j,temps[t]] for k in ToutBlenderplus)
+                           -quicksum(P[i,j,k,temps[t]] for k in Province))
     for j in Stockplus:
-        prob += res_PF_plus[i][j][2] ==pulp.lpSum([Bplus_1[i][k][j][2] for k in ToutBlender]) \
-                    + pulp.lpSum([Bplus_2[i][k][j][2] for k in ToutBlenderplus]) \
-                    - pulp.lpSum([Pplus[i][j][k][2] for k in Province])
+        prob.addConstr(res_PF_plus[i,j,2] == quicksum(Bplus_1[i,k,j,2] for k in ToutBlender)
+                       + quicksum(Bplus_2[i,k,j,2] for k in ToutBlenderplus)
+                       - quicksum(Pplus[i,j,k,2] for k in Province)
+                       )
         for t in range(1, len(temps)):
-            prob += res_PF_plus[i][j][temps[t]] == res_PF_plus[i][j][temps[t - 1]] \
-                    + pulp.lpSum([Bplus_1[i][k][j][t] for k in ToutBlender]) \
-                    + pulp.lpSum([Bplus_2[i][k][j][t] for k in ToutBlenderplus]) \
-                    - pulp.lpSum([Pplus[i][j][k][t] for k in Province])
+            prob.addConstr(res_PF_plus[i,j,temps[t]] == res_PF_plus[i,j,temps[t - 1]]
+                           + quicksum(Bplus_1[i,k,j,temps[t]] for k in ToutBlender)
+                           + quicksum(Bplus_2[i,k,j,temps[t]] for k in ToutBlenderplus)
+                           - quicksum(Pplus[i,j,k,temps[t]] for k in Province)
+                           )
 
 
 
 #Objective function
 
-prob+=(pulp.lpSum([coa[k.split("_")[0]][j]*X[i][j][k][t] for t in temps for l in Stock for i in MP for j in OCP for k in ToutBlender])
-       +pulp.lpSum([coa[k.split("_")[0]][j]*Xplus[i][j][k][t] for t in temps for l in Stock for i in MP for j in OCP for k in ToutBlenderplus])
-       +pulp.lpSum([cod[k][j.split("_")[0]]*Y[i][j][k][t] for t in temps for i in Recette for j in ToutBlender for k in Province])
-       +pulp.lpSum([cod[k][j.split("_")[0]]*Yplus[i][j][k][t] for t in temps for i in Recette for j in ToutBlenderplus for k in Province])
-       +pulp.lpSum([cod[k][j.split("_")[0]]*B[i][j][k][t] for t in temps for i in Recette for j in ToutBlender for k in Stock])
-       +pulp.lpSum([cod[k][j.split("_")[0]]*Bplus_0[i][j][k][t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stock])
-       +pulp.lpSum([cod[k.split("_")[0]][j.split("_")[0]]*Bplus_1[i][j][k][t] for t in temps for i in Recette for j in ToutBlender for k in Stockplus])
-       +pulp.lpSum([cod[k.split("_")[0]][j.split("_")[0]]*Bplus_2[i][j][k][t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stockplus])
-       +pulp.lpSum([coa[k.split("_")[0]][j]*A[i][j][k][t] for t in temps for i in MP for j in OCP for k in Stock])
-       +pulp.lpSum([coa[k.split("_")[0]][j]*Aplus[i][j][k][t] for t in temps for i in MP for j in OCP for k in Stockplus])
-       +pulp.lpSum([Cout_blending*X[i][j][k][t] for t in temps for i in MP for j in OCP for k in Blenders])
-       +pulp.lpSum([Cout_blending*Xplus[i][j][k][t] for t in temps for i in MP for j in OCP for k in Blenderplus])
-       +pulp.lpSum([Cout_smart_blending*X[i][j][k][t] for t in temps for i in MP for j in OCP for k in SBlenders])
-       +pulp.lpSum([Cout_smart_blending*Xplus[i][j][k][t] for t in temps for i in MP for j in OCP for k in SBlenderplus])
-       +pulp.lpSum([Cout_blending*R[i][j][k][t] for t in temps for i in MP for j in Stock for k in Blenders])
-       +pulp.lpSum([Cout_blending*Rplus_0[i][j][k][t] for t in temps for i in MP for j in Stock for k in Blenderplus])
-       +pulp.lpSum([Cout_blending*Rplus_1[i][j][k][t] for t in temps for i in MP for j in Stockplus for k in Blenders])
-       +pulp.lpSum([Cout_blending*Rplus_2[i][j][k][t] for t in temps for i in MP for j in Stockplus for k in Blenderplus])
-       +pulp.lpSum([Cout_smart_blending*R[i][j][k][t] for t in temps for i in MP for j in Stock for k in SBlenders])
-       +pulp.lpSum([Cout_smart_blending*Rplus_0[i][j][k][t] for t in temps for i in MP for j in Stock for k in SBlenderplus])
-       +pulp.lpSum([Cout_smart_blending*Rplus_1[i][j][k][t] for t in temps for i in MP for j in Stockplus for k in SBlenders])
-       +pulp.lpSum([Cout_smart_blending*Rplus_2[i][j][k][t] for t in temps for i in MP for j in Stockplus for k in SBlenderplus])
-       +pulp.lpSum([Cout_de_stockage_MP*A[i][j][k][t] for t in temps for i in MP for j in OCP for k in Stock])
-       +pulp.lpSum([Cout_de_stockage_MP*Aplus[i][j][k][t] for t in temps for i in MP for j in OCP for k in Stockplus])
-       +pulp.lpSum([Cout_de_stockage_Engrais*B[i][j][k][t] for t in temps for i in Recette for j in ToutBlender for k in Stock])
-       +pulp.lpSum([Cout_de_stockage_Engrais*Bplus_0[i][j][k][t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stock])
-       +pulp.lpSum([Cout_de_stockage_Engrais*Bplus_1[i][j][k][t] for t in temps for i in Recette for j in ToutBlender for k in Stockplus])
-       +pulp.lpSum([Cout_de_stockage_Engrais*Bplus_2[i][j][k][t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stockplus]))\
-      +pulp.lpSum([Cout_blender*CplusF[k] for k in Blenderplus])\
-      +pulp.lpSum([Cout_sblender*CplusF[k] for k in SBlenderplus])\
-      +pulp.lpSum([Cout_stockage_building*SplusF[k] for k in Stockplus])
+
+prob.setObjective(
+quicksum(Cout_stockage_building*SplusF[k] for k in Stockplus)
++quicksum(Cout_sblender*CplusF[k] for k in SBlenderplus)
++quicksum(Cout_blender*CplusF[k] for k in Blenderplus)
++quicksum(Cout_de_stockage_Engrais*Bplus_2[i,j,k,t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stockplus)
++quicksum(Cout_de_stockage_Engrais*Bplus_1[i,j,k,t] for t in temps for i in Recette for j in ToutBlender for k in Stockplus)
++quicksum(Cout_de_stockage_Engrais*Bplus_0[i,j,k,t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stock)
++quicksum(Cout_de_stockage_Engrais*B[i,j,k,t] for t in temps for i in Recette for j in ToutBlender for k in Stock)
++quicksum(Cout_de_stockage_MP*Aplus[i,j,k,t] for t in temps for i in MP for j in OCP for k in Stockplus)
++quicksum(Cout_de_stockage_MP*A[i,j,k,t] for t in temps for i in MP for j in OCP for k in Stock)
++quicksum(Cout_smart_blending*Rplus_2[i,j,k,t] for t in temps for i in MP for j in Stockplus for k in SBlenderplus)
++quicksum(Cout_smart_blending*Rplus_1[i,j,k,t] for t in temps for i in MP for j in Stockplus for k in SBlenders)
++quicksum(Cout_smart_blending*Rplus_0[i,j,k,t] for t in temps for i in MP for j in Stock for k in SBlenderplus)
++quicksum(Cout_smart_blending*R[i,j,k,t] for t in temps for i in MP for j in Stock for k in SBlenders)
++quicksum(Cout_blending*Rplus_2[i,j,k,t] for t in temps for i in MP for j in Stockplus for k in Blenderplus)
++quicksum(Cout_blending*Rplus_1[i,j,k,t] for t in temps for i in MP for j in Stockplus for k in Blenders)
++quicksum(Cout_blending*Rplus_0[i,j,k,t] for t in temps for i in MP for j in Stock for k in Blenderplus)
++quicksum(Cout_blending*R[i,j,k,t] for t in temps for i in MP for j in Stock for k in Blenders)
++quicksum(Cout_smart_blending*Xplus[i,j,k,t] for t in temps for i in MP for j in OCP for k in SBlenderplus)
++quicksum(Cout_smart_blending*X[i,j,k,t] for t in temps for i in MP for j in OCP for k in SBlenders)
++quicksum(Cout_blending*Xplus[i,j,k,t] for t in temps for i in MP for j in OCP for k in Blenderplus)
++quicksum(Cout_blending*X[i,j,k,t] for t in temps for i in MP for j in OCP for k in Blenders)
++quicksum(coa[k.split("_")[0]][j]*Aplus[i,j,k,t] for t in temps for i in MP for j in OCP for k in Stockplus)
++quicksum(coa[k.split("_")[0]][j]*A[i,j,k,t] for t in temps for i in MP for j in OCP for k in Stock)
++quicksum(cod[k.split("_")[0]][j.split("_")[0]]*Bplus_2[i,j,k,t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stockplus)
++quicksum(cod[k.split("_")[0]][j.split("_")[0]]*Bplus_1[i,j,k,t] for t in temps for i in Recette for j in ToutBlender for k in Stockplus)
++quicksum(cod[k][j.split("_")[0]]*Bplus_0[i,j,k,t] for t in temps for i in Recette for j in ToutBlenderplus for k in Stock)
++quicksum(cod[k][j.split("_")[0]]*B[i,j,k,t] for t in temps for i in Recette for j in ToutBlender for k in Stock)
++quicksum(cod[k][j.split("_")[0]]*Yplus[i,j,k,t] for t in temps for i in Recette for j in ToutBlenderplus for k in Province)
++quicksum(cod[k][j.split("_")[0]]*Y[i,j,k,t] for t in temps for i in Recette for j in ToutBlender for k in Province)
++quicksum(coa[k.split("_")[0]][j]*Xplus[i,j,k,t] for t in temps for i in MP for j in OCP for k in ToutBlenderplus)
++quicksum(coa[k.split("_")[0]][j]*X[i,j,k,t] for t in temps for i in MP for j in OCP for k in ToutBlender)
++quicksum(cod[j.split("_")[0]][k.split("_")[0]]*R[i,j,k,t] for t in temps for i in MP for j in Stock for k in ToutBlender)
++quicksum(cod[j.split("_")[0]][k.split("_")[0]]*Rplus_0[i,j,k,t] for t in temps for i in MP for j in Stock for k in ToutBlenderplus)
++quicksum(cod[j.split("_")[0]][k.split("_")[0]]*Rplus_1[i,j,k,t] for t in temps for i in MP for j in Stockplus for k in ToutBlender)
++quicksum(cod[j.split("_")[0]][k.split("_")[0]]*Rplus_2[i,j,k,t] for t in temps for i in MP for j in Stockplus for k in ToutBlenderplus)
++quicksum(cod[j.split("_")[0]][k.split("_")[0]]*P[i,j,k,t] for t in temps for i in Recette for j in Stock for k in Province)
++quicksum(cod[j.split("_")[0]][k.split("_")[0]]*Pplus[i,j,k,t] for t in temps for i in Recette for j in Stockplus for k in Province)
+
+
+,GRB.MINIMIZE)
+
+
+prob.optimize()
+
+
+row=2
+wb = openpyxl.Workbook()
+
+# Get workbook active sheet
+# from the active attribute
+sheet1 = wb.active
 
 
 
-prob.solve()
+
+# iterating through content list
+for i in range(len(OCP)):
+    for j in range(len(MP)):
+        for k in range(len(Stock)):
+            for t in range(len(temps)):
+                if A[MP[j],OCP[i],Stock[k],temps[t]].X!=0  :
+                    c1 = sheet1.cell(row=row , column=1)
+                    c1.value = OCP[i]
+                    c2 = sheet1.cell(row=row , column=2)
+                    c2.value = MP[j]
+                    c3 = sheet1.cell(row=row , column=3)
+                    c3.value = Stock[k].split("_")[0]
+                    c4 = sheet1.cell(row=row , column=4)
+                    c4.value = "Q" + str(temps[t])
+                    c5 = sheet1.cell(row=row , column=5)
+                    c5.value = A[MP[j], OCP[i], Stock[k], temps[t]].X
+                    c6 = sheet1.cell(row=row, column=6)
+                    c6.value = prix_MP[j]*A[MP[j], OCP[i], Stock[k], temps[t]].X
+
+
+                    row += 1
+
+
+wb.save("C:\\Users\\hp\\Desktop\\optimisation\\demo.xlsx")
+
+row=2
+wb1 = openpyxl.Workbook()
+sheet2 = wb1.active
+for i in range(len(Province)):
+    for j in range(len(temps)):
+        c1 = sheet2.cell(row=row, column=1)
+        c1.value = OCP[i]
+        c2 = sheet2.cell(row=row, column=2)
+        c2.value = MP[j]
+        c3 = sheet2.cell(row=row, column=3)
+        c3.value = Stock[k].split("_")[0]
+        row+=1
+
+
+
+
+wb1.save("C:\\Users\\hp\\Desktop\\optimisation\\demo_1.xlsx")
